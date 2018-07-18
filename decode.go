@@ -30,7 +30,7 @@ var typeReflect = map[int8]reflect.Type{
 	8:  reflect.TypeOf([]float32{}),
 	9:  reflect.TypeOf([]float64{}),
 	10: reflect.TypeOf([]byte{}),
-	12: reflect.TypeOf([]time.Duration{}),
+	12: reflect.TypeOf([]int64{}),
 	13: reflect.TypeOf([]Month{}),
 	14: reflect.TypeOf([]int32{}),
 	15: reflect.TypeOf([]float64{}),
@@ -53,9 +53,9 @@ func makeArray(vectype int8, veclen int) interface{} {
 		return make([]int32, veclen)
 	case 13:
 		return make([]Month, veclen)
-	case 16, 12:
+	case 16:
 		return make([]time.Duration, veclen)
-	case 7:
+	case 7, 12:
 		return make([]int64, veclen)
 	case 8:
 		return make([]float32, veclen)
@@ -136,11 +136,11 @@ func Uncompress(b []byte) (dst []byte) {
 }
 
 // Decodes data from src in q ipc format.
-func Decode(src *bufio.Reader) (data *K, msgtype int, e error) {
+func Decode(src *bufio.Reader) (*K, int, error) {
 	var header ipcHeader
-	e = binary.Read(src, binary.LittleEndian, &header)
-	if e != nil {
-		return nil, -1, errors.New("Failed to read message header:" + e.Error())
+	err := binary.Read(src, binary.LittleEndian, &header)
+	if err != nil {
+		return nil, -1, errors.New("Failed to read message header:" + err.Error())
 	}
 	if !header.ok() {
 		return nil, -1, errors.New("header is invalid")
@@ -151,36 +151,34 @@ func Decode(src *bufio.Reader) (data *K, msgtype int, e error) {
 	var order = header.getByteOrder()
 	if header.Compressed == 0x01 {
 		compressed := make([]byte, header.MsgSize-8)
-		_, e = io.ReadFull(src, compressed)
-		if e != nil {
-			return nil, int(header.RequestType), errors.New("Decode:readcompressed error - " + e.Error())
+		_, err = io.ReadFull(src, compressed)
+		if err != nil {
+			return nil, int(header.RequestType), errors.New("Decode:readcompressed error - " + err.Error())
 		}
 		var uncompressed = Uncompress(compressed)
 		var buf = bufio.NewReader(bytes.NewReader(uncompressed[8:]))
-		data, e = readData(buf, order)
-		return data, int(header.RequestType), e
+		data, err := readData(buf, order)
+		return data, int(header.RequestType), err
 	}
-	data, e = readData(src, order)
-	return data, int(header.RequestType), e
+	data, err := readData(src, order)
+	return data, int(header.RequestType), err
 }
 
-func readData(r *bufio.Reader, order binary.ByteOrder) (kobj *K, err error) {
+func readData(r *bufio.Reader, order binary.ByteOrder) (*K, error) {
 	var msgtype int8
-	err = binary.Read(r, order, &msgtype)
-	if err != nil {
+	if err := binary.Read(r, order, &msgtype); err != nil {
 		return nil, err
 	}
+
 	switch msgtype {
 	case -KB:
 		var b byte
 		binary.Read(r, order, &b)
 		return &K{msgtype, NONE, b != 0x0}, nil
-
 	case -UU:
 		var u uuid.UUID
 		binary.Read(r, order, &u)
 		return &K{msgtype, NONE, u}, nil
-
 	case -KG:
 		var b byte
 		binary.Read(r, order, &b)
@@ -189,8 +187,7 @@ func readData(r *bufio.Reader, order binary.ByteOrder) (kobj *K, err error) {
 		var sh int16
 		binary.Read(r, order, &sh)
 		return &K{msgtype, NONE, sh}, nil
-
-	case -KI, -KD, -KU, -KV:
+	case -KI, -KU, -KV:
 		var i int32
 		binary.Read(r, order, &i)
 		return &K{msgtype, NONE, i}, nil
@@ -216,16 +213,20 @@ func readData(r *bufio.Reader, order binary.ByteOrder) (kobj *K, err error) {
 			return nil, err
 		}
 		str := string(line[:len(line)-1])
-
 		return &K{msgtype, NONE, str}, nil
 	case -KP:
-		var ts time.Duration
-		binary.Read(r, order, &ts)
-		return &K{msgtype, NONE, qEpoch.Add(ts)}, nil
+		var nanos int64
+		binary.Read(r, order, &nanos)
+		return Timestamp(qEpoch.Add(time.Duration(nanos))), nil
 	case -KM:
 		var m Month
 		binary.Read(r, order, &m)
 		return &K{msgtype, NONE, m}, nil
+	case -KD:
+		var days int32
+		binary.Read(r, order, &days)
+		nanos := time.Duration(days) * time.Hour * 24
+		return Date(qEpoch.Add(nanos)), nil
 	case -KN:
 		var span time.Duration
 		binary.Read(r, order, &span)
@@ -236,20 +237,19 @@ func readData(r *bufio.Reader, order binary.ByteOrder) (kobj *K, err error) {
 		return Time(time.Unix(0, int64(millis)*int64(time.Millisecond))), nil
 	case KB, UU, KG, KH, KI, KJ, KE, KF, KC, KP, KM, KD, KN, KU, KV, KT, KZ:
 		var vecattr Attr
-		err = binary.Read(r, order, &vecattr)
-		if err != nil {
+		if err := binary.Read(r, order, &vecattr); err != nil {
 			return nil, errors.New("failed to read vector attr: " + err.Error())
 		}
+
 		var veclen uint32
-		err = binary.Read(r, order, &veclen)
-		if err != nil {
+		if err := binary.Read(r, order, &veclen); err != nil {
 			return nil, errors.New("failed to read vector length: " + err.Error())
 		}
+
 		var arr interface{}
 		if msgtype >= KB && msgtype <= KT {
 			bytedata := make([]byte, int(veclen)*typeSize[msgtype])
-			_, err = io.ReadFull(r, bytedata)
-			if err != nil {
+			if _, err := io.ReadFull(r, bytedata); err != nil {
 				return nil, errors.New("failed to read. not enough data: " + err.Error())
 			}
 			head := (*reflect.SliceHeader)(unsafe.Pointer(&bytedata))
@@ -258,32 +258,28 @@ func readData(r *bufio.Reader, order binary.ByteOrder) (kobj *K, err error) {
 			arr = reflect.Indirect(reflect.NewAt(typeReflect[msgtype], unsafe.Pointer(&bytedata))).Interface()
 		} else {
 			arr = makeArray(msgtype, int(veclen))
-			err = binary.Read(r, order, arr)
-		}
-		if err != nil {
-			return nil, errors.New("error during conversion: " + err.Error())
-		}
-		if msgtype == KC {
-			return &K{msgtype, vecattr, string(arr.([]byte))}, nil
-		}
-		if msgtype == KP {
-			arr := arr.([]time.Duration)
-			var timearr = make([]time.Time, veclen)
-			for i := 0; i < int(veclen); i++ {
-				timearr[i] = qEpoch.Add(arr[i])
+			if err := binary.Read(r, order, arr); err != nil {
+				return nil, errors.New("error during conversion: " + err.Error())
 			}
-			return &K{msgtype, vecattr, timearr}, nil
 		}
-		if msgtype == KD {
-			arr := arr.([]int32)
-			var timearr = make([]time.Time, veclen)
-			for i := 0; i < int(veclen); i++ {
-				d := time.Duration(arr[i]) * 24 * time.Hour
-				timearr[i] = qEpoch.Add(d)
+
+		switch msgtype {
+		case KC:
+			return String(string(arr.([]byte))), nil
+		case KP:
+			var vec = make([]time.Time, veclen)
+			for i, nanos := range arr.([]int64) {
+				vec[i] = qEpoch.Add(time.Duration(nanos))
 			}
-			return &K{msgtype, vecattr, timearr}, nil
-		}
-		if msgtype == KZ {
+			return TimestampV(vec), nil
+		case KD:
+			var vec = make([]time.Time, veclen)
+			for i, days := range arr.([]int32) {
+				nanos := time.Duration(days) * time.Hour * 24
+				vec[i] = qEpoch.Add(nanos)
+			}
+			return DateV(vec), nil
+		case KZ:
 			arr := arr.([]float64)
 			var timearr = make([]time.Time, veclen)
 			for i := 0; i < int(veclen); i++ {
@@ -291,8 +287,7 @@ func readData(r *bufio.Reader, order binary.ByteOrder) (kobj *K, err error) {
 				timearr[i] = qEpoch.Add(d)
 			}
 			return &K{msgtype, vecattr, timearr}, nil
-		}
-		if msgtype == KU {
+		case KU:
 			arr := arr.([]int32)
 			var timearr = make([]Minute, veclen)
 			for i := 0; i < int(veclen); i++ {
@@ -300,8 +295,7 @@ func readData(r *bufio.Reader, order binary.ByteOrder) (kobj *K, err error) {
 				timearr[i] = Minute(time.Time{}.Add(d))
 			}
 			return &K{msgtype, vecattr, timearr}, nil
-		}
-		if msgtype == KV {
+		case KV:
 			arr := arr.([]int32)
 			var timearr = make([]Second, veclen)
 			for i := 0; i < int(veclen); i++ {
@@ -320,13 +314,11 @@ func readData(r *bufio.Reader, order binary.ByteOrder) (kobj *K, err error) {
 		return &K{msgtype, vecattr, arr}, nil
 	case K0:
 		var vecattr Attr
-		err = binary.Read(r, order, &vecattr)
-		if err != nil {
+		if err := binary.Read(r, order, &vecattr); err != nil {
 			return nil, errors.New("failed to read vector attr: " + err.Error())
 		}
 		var veclen uint32
-		err = binary.Read(r, order, &veclen)
-		if err != nil {
+		if err := binary.Read(r, order, &veclen); err != nil {
 			return nil, errors.New("failed to read vector length: " + err.Error())
 		}
 		var arr = make([]*K, veclen)
@@ -340,13 +332,11 @@ func readData(r *bufio.Reader, order binary.ByteOrder) (kobj *K, err error) {
 		return &K{msgtype, vecattr, arr}, nil
 	case KS:
 		var vecattr Attr
-		err = binary.Read(r, order, &vecattr)
-		if err != nil {
+		if err := binary.Read(r, order, &vecattr); err != nil {
 			return nil, errors.New("failed to read vector attr: " + err.Error())
 		}
 		var veclen uint32
-		err = binary.Read(r, order, &veclen)
-		if err != nil {
+		if err := binary.Read(r, order, &veclen); err != nil {
 			return nil, errors.New("failed to read vector length: " + err.Error())
 		}
 		var arr = makeArray(msgtype, int(veclen)).([]string)
@@ -370,8 +360,7 @@ func readData(r *bufio.Reader, order binary.ByteOrder) (kobj *K, err error) {
 		return NewDict(dk, dv), nil
 	case XT:
 		var vecattr Attr
-		err = binary.Read(r, order, &vecattr)
-		if err != nil {
+		if err := binary.Read(r, order, &vecattr); err != nil {
 			return nil, errors.New("failed to read vector attr: " + err.Error())
 		}
 		d, err := readData(r, order)
@@ -404,21 +393,19 @@ func readData(r *bufio.Reader, order binary.ByteOrder) (kobj *K, err error) {
 		return &K{msgtype, NONE, f}, nil
 	case KFUNCUP, KFUNCBP, KFUNCTR:
 		var primitiveidx byte
-		err = binary.Read(r, order, &primitiveidx)
-		if err != nil {
+		if err := binary.Read(r, order, &primitiveidx); err != nil {
 			return nil, err
 		}
 		return &K{msgtype, NONE, primitiveidx}, nil
 	case KPROJ, KCOMP:
 		var n uint32
-		err = binary.Read(r, order, &n)
-		if err != nil {
+		if err := binary.Read(r, order, &n); err != nil {
 			return nil, err
 		}
 		var res = make([]interface{}, n)
 		for i := 0; i < int(n); i++ {
-			res[i], err = readData(r, order)
-			if err != nil {
+			var err error
+			if res[i], err = readData(r, order); err != nil {
 				return nil, err
 			}
 		}
