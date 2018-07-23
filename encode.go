@@ -53,11 +53,11 @@ func writeData(dbuf *bytes.Buffer, order binary.ByteOrder, data *K) error {
 		}
 	case -KD: // Date
 		date := data.Data.(time.Time)
-		days := date.Sub(qEpoch) / (time.Hour * 24)
+		days := date.Truncate(time.Hour * 24).Sub(qEpoch) / (time.Hour * 24)
 		binary.Write(dbuf, order, int32(days))
 	case KD: // Date
 		for _, date := range data.Data.([]time.Time) {
-			days := date.Sub(qEpoch) / (time.Hour * 24)
+			days := date.Truncate(time.Hour * 24).Sub(qEpoch) / (time.Hour * 24)
 			binary.Write(dbuf, order, int32(days))
 		}
 	case -KT: // Time
