@@ -148,3 +148,25 @@ func TestEncoding(t *testing.T) {
 		}
 	}
 }
+
+func TestEncoding_Date_NotExact(t *testing.T) {
+	before1970Desc := "1969-12-31 23:59:50 +0000 UTC" // In kdb this is equivalent to `1969.12.31`
+	before1970Input := Date(time.Date(1969, 12, 31, 23, 59, 50, 0, time.UTC))
+	before1970Bytes := []byte{0x01, 0x00, 0x00, 0x00, 0x0d, 0x00, 0x00, 0x00, 0xf2, 0x32, 0xd5, 0xff, 0xff}
+	beforeBuf := new(bytes.Buffer)
+	if err := Encode(beforeBuf, ASYNC, before1970Input); err != nil {
+		t.Errorf("Encoding '%s' failed:%s", before1970Desc, err)
+	} else if !bytes.Equal(beforeBuf.Bytes(), before1970Bytes) {
+		t.Errorf("Encoded '%s' incorrectly. Expected '%v', got '%v'\n", before1970Desc, before1970Bytes, beforeBuf.Bytes())
+	}
+
+	after1970Desc := "1970-01-01 00:00:10 +0000 UTC" // In kdb this is equivalent to `1970.01.01`
+	after1970Input := Date(time.Date(1970, 1, 1, 0, 0, 10, 0, time.UTC))
+	after1970Bytes := []byte{0x01, 0x00, 0x00, 0x00, 0x0d, 0x00, 0x00, 0x00, 0xf2, 0x33, 0xd5, 0xff, 0xff}
+	afterBuf := new(bytes.Buffer)
+	if err := Encode(afterBuf, ASYNC, after1970Input); err != nil {
+		t.Errorf("Encoding '%s' failed:%s", after1970Desc, err)
+	} else if !bytes.Equal(afterBuf.Bytes(), after1970Bytes) {
+		t.Errorf("Encoded '%s' incorrectly. Expected '%v', got '%v'\n", after1970Desc, after1970Bytes, afterBuf.Bytes())
+	}
+}
