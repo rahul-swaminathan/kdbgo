@@ -225,8 +225,7 @@ func readData(r *bufio.Reader, order binary.ByteOrder) (*K, error) {
 	case -KD:
 		var days int32
 		binary.Read(r, order, &days)
-		nanos := time.Duration(days) * time.Hour * 24
-		return Date(qEpoch.Add(nanos)), nil
+		return Date(time.Unix((int64(days)*86400)+qEpoch.Unix(), 0)), nil
 	case -KN:
 		var span time.Duration
 		binary.Read(r, order, &span)
@@ -275,8 +274,7 @@ func readData(r *bufio.Reader, order binary.ByteOrder) (*K, error) {
 		case KD:
 			var vec = make([]time.Time, veclen)
 			for i, days := range arr.([]int32) {
-				nanos := time.Duration(days) * time.Hour * 24
-				vec[i] = qEpoch.Add(nanos)
+				vec[i] = time.Unix((int64(days)*86400)+qEpoch.Unix(), 0)
 			}
 			return DateV(vec), nil
 		case KZ:
