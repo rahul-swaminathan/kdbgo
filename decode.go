@@ -11,6 +11,7 @@ import (
 	"unsafe"
 
 	"github.com/nu7hatch/gouuid"
+	"fmt"
 )
 
 var typeSize = map[int8]int{
@@ -414,14 +415,14 @@ func readData(r *bufio.Reader, order binary.ByteOrder) (*K, error) {
 		return readData(r, order)
 	case KDYNLOAD:
 		// 112 - dynamic load
-		return nil, errors.New("type is unsupported")
+		return nil, NewUnsupportedTypeError(fmt.Sprintf("Unsupported type: %d", msgtype))
 	case KERR:
 		line, err := r.ReadSlice(0)
 		if err != nil {
 			return nil, err
 		}
 		errmsg := string(line[:len(line)-1])
-		return nil, errors.New(errmsg)
+		return nil, NewRuntimeError(errmsg)
 	}
-	return nil, ErrBadMsg
+	return nil, NewUnsupportedTypeError(fmt.Sprintf("Unsupported type: %d", msgtype))
 }
