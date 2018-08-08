@@ -329,14 +329,39 @@ func (k K) String() string {
 	}
 }
 
-// Message is malformated or invalid
-var ErrBadMsg = errors.New("Bad Message")
-
 // Message header is invalid
 var ErrBadHeader = errors.New("Bad header")
 
 // Cannot process sync requests
 var ErrSyncRequest = errors.New("nosyncrequest")
+
+// NewUnsupportedTypeError initializes a new UnsupportedTypeError with a message.
+func NewUnsupportedTypeError(msg string) error {
+	return &UnsupportedTypeError{msg}
+}
+
+// UnsupportedTypeError is an error returned when encoding or decoding a type that is not supported by kdb
+type UnsupportedTypeError struct {
+	msg string
+}
+
+func (e *UnsupportedTypeError) Error() string {
+	return e.msg
+}
+
+// NewRuntimeError initializes a new RuntimeError with a message.
+func NewRuntimeError(msg string) error {
+	return &RuntimeError{msg}
+}
+
+// RuntimeError is a runtime error thrown by a Q engine
+type RuntimeError struct {
+	msg string
+}
+
+func (e *RuntimeError) Error() string {
+	return e.msg
+}
 
 // Epoch offset for Q time. Q epoch starts on 1st Jan 2000
 var qEpoch = time.Date(2000, time.January, 1, 0, 0, 0, 0, time.UTC)

@@ -3,10 +3,9 @@ package kdb
 import (
 	"bytes"
 	"encoding/binary"
-	"errors"
+	"fmt"
 	"io"
 	"reflect"
-	"strconv"
 	"time"
 )
 
@@ -104,7 +103,7 @@ func writeData(dbuf *bytes.Buffer, order binary.ByteOrder, data *K) error {
 			return err
 		}
 	default:
-		return errors.New("unknown type " + strconv.Itoa(int(data.Type)))
+		return NewUnsupportedTypeError(fmt.Sprintf("Unsupported Type: %d", data.Type))
 	}
 	return nil
 }
