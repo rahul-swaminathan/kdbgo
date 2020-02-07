@@ -168,3 +168,19 @@ func TestEncoding_Date_NotExact(t *testing.T) {
 		t.Errorf("Encoded '%s' incorrectly. Expected '%v', got '%v'\n", after1970Desc, after1970Bytes, afterBuf.Bytes())
 	}
 }
+
+func BenchmarkEncodeAll(b *testing.B) {
+	buf := new(bytes.Buffer)
+	b.ReportAllocs()
+
+	for i := 0; i < b.N; i++ {
+		for _, tt := range testCases {
+			buf.Reset()
+			err := Encode(buf, ASYNC, tt.k)
+			if err != nil {
+				b.Errorf("Encoding '%s' failed:%s", tt.desc, err)
+				continue
+			}
+		}
+	}
+}

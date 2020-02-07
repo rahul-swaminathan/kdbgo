@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"reflect"
+	"sync"
 	"time"
 )
 
@@ -189,10 +190,30 @@ func Compress(b []byte) (dst []byte) {
 	return dst[:d:d]
 }
 
+// buffer pool to reduce GC
+var buffers = sync.Pool{
+	// New is called when a new instance is needed
+	New: func() interface{} {
+		return new(bytes.Buffer)
+	},
+}
+
+// GetBuffer fetches a buffer from the pool
+func GetBuffer() *bytes.Buffer {
+	return buffers.Get().(*bytes.Buffer)
+}
+
+// PutBuffer returns a buffer to the pool
+func PutBuffer(buf *bytes.Buffer) {
+	buf.Reset()
+	buffers.Put(buf)
+}
+
 // Encode data to ipc format as msgtype(sync/async/response) to specified writer
 func Encode(w io.Writer, msgtype int, data *K) error {
 	var order = binary.LittleEndian
-	buf := new(bytes.Buffer)
+	buf := GetBuffer()
+	defer PutBuffer(buf)
 
 	// As a place holder header, write 8 bytes to the buffer
 	header := [8]byte{}
